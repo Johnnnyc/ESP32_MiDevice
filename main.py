@@ -65,31 +65,47 @@ def compare_versions(version1, version2):
 # 获取GitHub最新版本
 def get_latest_version():
     """从GitHub获取最新版本信息"""
-    try:
-        log("INFO", "正在检查GitHub最新版本...")
-        response = urequests.get(GITHUB_API_URL)
-        if response.status_code == 200:
-            data = response.json()
-            latest_version = data.get("tag_name", "")
-            # 移除可能的"v"前缀
-            if latest_version.startswith("v"):
-                latest_version = latest_version[1:]
-            log("INFO", f"GitHub最新版本: {latest_version}")
-            response.close()
-            return latest_version
-        else:
-            log("ERROR", f"获取GitHub版本失败: {response.status_code}")
-            response.close()
-            return None
-    except Exception as e:
-        log("ERROR", f"获取GitHub版本异常: {e}")
-        return None
+    for retry in range(GITHUB_MAX_RETRIES):
+        try:
+            log("INFO", f"正在检查GitHub最新版本... (尝试 {retry+1}/{GITHUB_MAX_RETRIES})")
+            response = urequests.get(GITHUB_API_URL)
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data.get("tag_name", "")
+                # 移除可能的"v"前缀
+                if latest_version.startswith("v"):
+                    latest_version = latest_version[1:]
+                log("INFO", f"GitHub最新版本: {latest_version}")
+                response.close()
+                return latest_version
+            else:
+                log("ERROR", f"获取GitHub版本失败: {response.status_code}")
+                response.close()
+                if retry < GITHUB_MAX_RETRIES - 1:
+                    log("INFO", f"GitHub API请求限制或网络问题，{GITHUB_RETRY_DELAY//1000}秒后重试...")
+                    time.sleep(GITHUB_RETRY_DELAY / 1000)
+                else:
+                    log("INFO", "已达到最大重试次数，将在下次检查时重试")
+                    return None
+        except Exception as e:
+            log("ERROR", f"获取GitHub版本异常: {e}")
+            if retry < GITHUB_MAX_RETRIES - 1:
+                log("INFO", f"网络错误，{GITHUB_RETRY_DELAY//1000}秒后重试...")
+                time.sleep(GITHUB_RETRY_DELAY / 1000)
+            else:
+                log("INFO", "已达到最大重试次数，将在下次检查时重试")
+                return None
+    return None
 
 # 检查版本更新
 def check_for_updates():
     """检查是否有版本更新"""
     current_version = FIRMWARE_VERSION
     log("INFO", f"当前固件版本: {current_version}")
+    
+    if not ENABLE_GITHUB_CHECK:
+        log("INFO", "GitHub版本检查已禁用")
+        return None
     
     latest_version = get_latest_version()
     if latest_version:
@@ -130,6 +146,10 @@ def download_firmware(version):
 # 执行OTA更新
 def perform_ota_update():
     """执行OTA更新"""
+    if not ENABLE_GITHUB_CHECK:
+        log("INFO", "GitHub版本检查已禁用，跳过OTA更新")
+        return
+    
     latest_version = check_for_updates()
     if latest_version:
         if download_firmware(latest_version):
@@ -537,6 +557,7 @@ def main():
                 last_ota_check = current_time
             
             # 检查是否需要推送数据到Firebase（每3分钟）
+            # 已在外层定义为全局变量，此处无需再次声明
             if current_time - last_firebase_push >= DATA_PUSH_INTERVAL:
                 log("INFO", "定期推送数据到Firebase...")
                 data = read_sensor()

@@ -1,0 +1,23 @@
+# 忽略敏感文件
+secret.py
+
+# 忽略编译生成的文件
+__pycache__/
+*.pyc
+
+# 忽略固件文件
+firmware.bin
+
+# 忽略日志文件
+*.log
+
+# 忽略临时文件
+*.tmp
+*.temp
+
+# 忽略IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

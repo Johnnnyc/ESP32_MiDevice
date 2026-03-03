@@ -44,10 +44,9 @@ GITHUB_REPO = "Johnnyc/ESP32_MiDevice"  # GitHub仓库
 GITHUB_API_URL = "https://api.github.com/repos/{}/releases/latest".format(GITHUB_REPO)
 
 # MQTT配置
+from secret import MQTT_USER, MQTT_PASSWORD
 MQTT_BROKER = "z6fc98e1.ala.cn-hangzhou.emqxsl.cn"  # MQTT服务器地址
 MQTT_PORT = 8883  # MQTT端口
-MQTT_USER = "Johnney"  # MQTT用户名
-MQTT_PASSWORD = "Zq??900725"  # MQTT密码
 MQTT_CLIENT_ID = "ESP32_MiDevice"
 MQTT_TOPIC = "esp32/topic"  # 接收更新指令的主题
 MQTT_UPDATE_TOPIC = "esp32/update"  # 接收更新指令的主题
@@ -55,3 +54,6 @@ MQTT_UPDATE_TOPIC = "esp32/update"  # 接收更新指令的主题
 # OTA相关
 OTA_UPDATE_INTERVAL = 3600000  # 版本检查间隔（1小时）
 FIRMWARE_PATH = "/firmware.bin"  # 固件保存路径
+ENABLE_GITHUB_CHECK = True  # 是否启用GitHub版本检查
+GITHUB_RETRY_DELAY = 60000  # GitHub API失败后重试延迟（1分钟）
+GITHUB_MAX_RETRIES = 3  # GitHub API最大重试次数
