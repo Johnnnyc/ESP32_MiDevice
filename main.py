@@ -200,8 +200,12 @@ def push_data_to_firebase(data):
 def log(level, message):
     """简单的日志函数"""
     timestamp = time.localtime()
+    # 东八区时区偏移 +8小时
+    hour = timestamp[3] + 8
+    if hour >= 24:
+        hour -= 24
     time_str = "{:02d}:{:02d}:{:02d}".format(
-        timestamp[3], timestamp[4], timestamp[5]
+        hour, timestamp[4], timestamp[5]
     )
     print(f"[{time_str}] [{level}] {message}")
 
@@ -339,6 +343,8 @@ def read_sensor():
             hour -= 24
         # 直接格式化字符串，减少中间变量
         time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+        # 记录时区处理后的时间，便于调试
+        log("INFO", f"时区处理后时间: {time_str}")
     except Exception as e:
         log("ERROR", f'获取网络时间失败: {e}')
         # 获取当前时间并格式化为字符串
