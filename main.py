@@ -327,11 +327,21 @@ def read_sensor():
         if last_ntp_sync == 0 or current_epoch - last_ntp_sync > 3600:
             # 减少NTP同步频率，节省内存和网络资源
             try:
+                # 使用国内可用的NTP服务器
+                ntptime.host = 'ntp.aliyun.com'  # 阿里云NTP服务器
                 ntptime.settime()  # 同步网络时间
                 last_ntp_sync = current_epoch
                 log("INFO", "NTP时间同步成功")
             except Exception as e:
                 log("ERROR", f'NTP同步失败: {e}')
+                # 尝试使用其他NTP服务器
+                try:
+                    ntptime.host = 'cn.pool.ntp.org'  # 中国NTP服务器池
+                    ntptime.settime()
+                    last_ntp_sync = current_epoch
+                    log("INFO", "NTP时间同步成功(备用服务器)")
+                except Exception as e2:
+                    log("ERROR", f'备用NTP服务器同步失败: {e2}')
         
         # 格式化时间 - 手动处理东八区时区
         current_time = time.localtime()
