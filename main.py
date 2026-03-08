@@ -343,14 +343,18 @@ def read_sensor():
                 except Exception as e2:
                     log("ERROR", f'备用NTP服务器同步失败: {e2}')
         
-        # 格式化时间 - 手动处理东八区时区
+        # 格式化时间
         current_time = time.localtime()
         # 简化时间格式化，减少内存使用
         year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
-        # 东八区时区偏移 +8小时
-        hour += 8
-        if hour >= 24:
-            hour -= 24
+        
+        # 如果NTP曾经成功同步过，说明系统时间是UTC，需要加8小时
+        if last_ntp_sync > 0:
+            # 东八区时区偏移 +8小时
+            hour += 8
+            if hour >= 24:
+                hour -= 24
+        
         # 直接格式化字符串，减少中间变量
         time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
         # 记录时区处理后的时间，便于调试
@@ -360,10 +364,7 @@ def read_sensor():
         # 获取当前时间并格式化为字符串
         current_time = time.localtime()
         year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
-        # 东八区时区偏移 +8小时
-        hour += 8
-        if hour >= 24:
-            hour -= 24
+        # NTP同步失败时，不添加时区偏移
         time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     
     # 构建数据字典
