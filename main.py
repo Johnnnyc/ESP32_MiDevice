@@ -65,76 +65,53 @@ def compare_versions(version1, version2):
 # 获取GitHub最新版本
 def get_latest_version():
     """从GitHub获取最新版本信息"""
-    for retry in range(GITHUB_MAX_RETRIES):
-        try:
-            log("INFO", "正在检查GitHub最新版本...")
-            # 最小化HTTP请求，减少内存使用
-            headers = {"User-Agent": "ESP32-MiDevice"}
-            # 使用更短的超时
-            response = urequests.get(GITHUB_API_URL, headers=headers, timeout=5)
+    try:
+        # 最小化HTTP请求，减少内存使用
+        headers = {"User-Agent": "ESP32-MiDevice"}
+        # 使用更短的超时
+        response = urequests.get(GITHUB_API_URL, headers=headers, timeout=3)
+        
+        if response.status_code == 200:
+            # 简化JSON解析，减少内存使用
+            response_text = response.text
+            response.close()
             
-            if response.status_code == 200:
-                # 简化JSON解析，减少内存使用
-                response_text = response.text
-                response.close()
-                # 手动解析tag_name，避免完整JSON解析
-                if '"tag_name":"' in response_text:
-                    start_idx = response_text.find('"tag_name":"') + 10
-                    end_idx = response_text.find('"', start_idx)
-                    if start_idx > 10 and end_idx > start_idx:
-                        latest_version = response_text[start_idx:end_idx]
-                        # 移除可能的"v"前缀
-                        if latest_version.startswith("v"):
-                            latest_version = latest_version[1:]
-                        log("INFO", f"GitHub最新版本: {latest_version}")
-                        return latest_version
-            elif response.status_code == 404:
-                # 404错误表示仓库没有发布版本，这是正常情况
-                log("INFO", "GitHub仓库暂无发布版本，使用当前版本")
-                response.close()
-                return FIRMWARE_VERSION
-            else:
-                log("ERROR", f"获取GitHub版本失败: {response.status_code}")
-                response.close()
-            
-            if retry < GITHUB_MAX_RETRIES - 1:
-                log("INFO", f"GitHub API请求限制或网络问题，{GITHUB_RETRY_DELAY//1000}秒后重试...")
-                time.sleep(GITHUB_RETRY_DELAY / 1000)
-            else:
-                log("INFO", "已达到最大重试次数，将在下次检查时重试")
-                return None
-        except Exception as e:
-            log("ERROR", f"获取GitHub版本异常: {e}")
-            if retry < GITHUB_MAX_RETRIES - 1:
-                log("INFO", f"网络错误，{GITHUB_RETRY_DELAY//1000}秒后重试...")
-                time.sleep(GITHUB_RETRY_DELAY / 1000)
-            else:
-                log("INFO", "已达到最大重试次数，将在下次检查时重试")
-                return None
-    return None
+            # 手动解析tag_name，避免完整JSON解析
+            tag_start = response_text.find('"tag_name":"')
+            if tag_start != -1:
+                tag_start += 10
+                tag_end = response_text.find('"', tag_start)
+                if tag_end > tag_start:
+                    latest_version = response_text[tag_start:tag_end]
+                    # 移除可能的"v"前缀
+                    if latest_version.startswith("v"):
+                        latest_version = latest_version[1:]
+                    return latest_version
+        elif response.status_code == 404:
+            # 404错误表示仓库没有发布版本，这是正常情况
+            response.close()
+            return FIRMWARE_VERSION
+        
+        response.close()
+        return None
+    except Exception as e:
+        # 减少日志输出，节省内存
+        return None
 
 # 检查版本更新
 def check_for_updates():
     """检查是否有版本更新"""
-    current_version = FIRMWARE_VERSION
-    log("INFO", f"当前固件版本: {current_version}")
-    
     if not ENABLE_GITHUB_CHECK:
-        log("INFO", "GitHub版本检查已禁用")
         return None
     
+    current_version = FIRMWARE_VERSION
     latest_version = get_latest_version()
-    if latest_version:
+    
+    if latest_version and latest_version != current_version:
         comparison = compare_versions(latest_version, current_version)
         if comparison > 0:
-            log("INFO", f"发现新版本: {latest_version}")
-            log("INFO", f"当前版本: {current_version}, 新版本: {latest_version}")
-            log("INFO", f"版本比较结果: {comparison} (1表示有更新)")
             return latest_version
-        else:
-            log("INFO", "当前已是最新版本")
-            log("INFO", f"当前版本: {current_version}, GitHub版本: {latest_version}")
-            return None
+    
     return None
 
 # 下载固件
@@ -191,23 +168,15 @@ def perform_ota_update():
 def push_data_to_firebase(data):
     """推送数据到Firebase"""
     try:
-        log("INFO", "正在推送数据到Firebase...")
+        # 减少日志输出，节省内存
         url = f"{FIREBASE_URL}/data.json"
         headers = {"Content-Type": "application/json"}
-        # 设置超时为15秒，避免无限等待
-        response = urequests.put(url, json=data, headers=headers, timeout=15)
-        log("INFO", f"Firebase推送状态码: {response.status_code}")
-        # 简化响应处理，减少内存使用
+        # 设置超时为10秒，避免无限等待
+        response = urequests.put(url, json=data, headers=headers, timeout=10)
         response.close()
         return True
-    except OSError as e:
-        if "ETIMEDOUT" in str(e):
-            log("ERROR", "Firebase推送超时，请检查网络连接")
-        else:
-            log("ERROR", f"Firebase推送失败: {e}")
-        return False
-    except Exception as e:
-        log("ERROR", f"Firebase推送异常: {e}")
+    except Exception:
+        # 减少日志输出，节省内存
         return False
 
 def log(level, message):
@@ -342,14 +311,10 @@ def read_sensor():
             except Exception as e:
                 log("ERROR", f'NTP同步失败: {e}')
         
-        # 格式化时间
+        # 格式化时间 - 直接使用系统时间，ntptime.settime()会自动处理时区
         current_time = time.localtime()
         # 简化时间格式化，减少内存使用
         year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
-        # 添加时区偏移量（东八区为 +8 小时）
-        hour += 8
-        if hour >= 24:
-            hour -= 24
         # 直接格式化字符串，减少中间变量
         time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     except Exception as e:
@@ -357,9 +322,6 @@ def read_sensor():
         # 获取当前时间并格式化为字符串
         current_time = time.localtime()
         year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
-        hour += 8
-        if hour >= 24:
-            hour -= 24
         time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     
     # 构建数据字典
