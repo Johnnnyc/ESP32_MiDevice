@@ -199,11 +199,15 @@ def push_data_to_firebase(data):
 
 def log(level, message):
     """简单的日志函数"""
+    global last_ntp_sync
     timestamp = time.localtime()
-    # 东八区时区偏移 +8小时
-    hour = timestamp[3] + 8
-    if hour >= 24:
-        hour -= 24
+    # 只有当NTP曾经成功同步过，才加8小时（因为NTP返回的是UTC时间）
+    hour = timestamp[3]
+    if last_ntp_sync > 0:
+        # 东八区时区偏移 +8小时
+        hour += 8
+        if hour >= 24:
+            hour -= 24
     time_str = "{:02d}:{:02d}:{:02d}".format(
         hour, timestamp[4], timestamp[5]
     )
@@ -522,6 +526,7 @@ def main():
     last_reinit_time = time.time()  # 初始化重新初始化时间
     last_ota_check = time.time()  # 初始化OTA检查时间
     last_firebase_push = time.time()  # 初始化Firebase推送时间
+    last_ntp_sync = 0  # 初始化为0，表示从未同步过NTP
     
     # 系统启动时检查版本更新
     log("INFO", "系统启动，检查版本更新...")
