@@ -68,7 +68,12 @@ def get_latest_version():
     for retry in range(GITHUB_MAX_RETRIES):
         try:
             log("INFO", f"正在检查GitHub最新版本... (尝试 {retry+1}/{GITHUB_MAX_RETRIES})")
-            response = urequests.get(GITHUB_API_URL)
+            # 添加User-Agent头，GitHub API要求所有请求必须包含User-Agent
+            headers = {
+                "User-Agent": "ESP32-MiDevice"
+            }
+            # 设置超时为10秒
+            response = urequests.get(GITHUB_API_URL, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 latest_version = data.get("tag_name", "")
@@ -80,6 +85,8 @@ def get_latest_version():
                 return latest_version
             else:
                 log("ERROR", f"获取GitHub版本失败: {response.status_code}")
+                response_text = response.text
+                log("ERROR", f"GitHub响应: {response_text}")
                 response.close()
                 if retry < GITHUB_MAX_RETRIES - 1:
                     log("INFO", f"GitHub API请求限制或网络问题，{GITHUB_RETRY_DELAY//1000}秒后重试...")
@@ -168,8 +175,11 @@ def push_data_to_firebase(data):
         log("INFO", "正在推送数据到Firebase...")
         url = f"{FIREBASE_URL}/data.json"
         headers = {"Content-Type": "application/json"}
-        response = urequests.post(url, json=data, headers=headers)
-        log("INFO", f"Firebase推送成功: {response.status_code}")
+        # 使用PUT请求替代POST请求，确保数据正确写入
+        response = urequests.put(url, json=data, headers=headers)
+        log("INFO", f"Firebase推送状态码: {response.status_code}")
+        response_text = response.text
+        log("INFO", f"Firebase响应: {response_text}")
         response.close()
         return True
     except Exception as e:

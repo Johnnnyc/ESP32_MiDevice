@@ -40,7 +40,7 @@ STATUS_REPORT_INTERVAL = 5000
 
 # OTA配置
 FIRMWARE_VERSION = "1.0.0"  # 当前固件版本
-GITHUB_REPO = "Johnnyc/ESP32_MiDevice"  # GitHub仓库
+GITHUB_REPO = "Johnnnyc/ESP32_MiDevice"  # GitHub仓库
 GITHUB_API_URL = "https://api.github.com/repos/{}/releases/latest".format(GITHUB_REPO)
 
 # MQTT配置
