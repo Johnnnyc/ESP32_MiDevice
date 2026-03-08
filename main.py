@@ -187,10 +187,14 @@ def push_data_to_firebase(data):
         response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
         response.close()
         
+        # 保留成功日志，便于调试
+        log("INFO", "Firebase推送成功")
+        
         gc.collect()  # 推送后进行内存回收
         return True
-    except Exception:
-        # 静默失败，减少内存使用
+    except Exception as e:
+        # 保留失败日志，便于调试
+        log("ERROR", "Firebase推送失败")
         return False
 
 def log(level, message):
