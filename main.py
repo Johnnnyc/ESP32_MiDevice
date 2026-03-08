@@ -124,9 +124,12 @@ def check_for_updates():
         comparison = compare_versions(latest_version, current_version)
         if comparison > 0:
             log("INFO", f"发现新版本: {latest_version}")
+            log("INFO", f"当前版本: {current_version}, 新版本: {latest_version}")
+            log("INFO", f"版本比较结果: {comparison} (1表示有更新)")
             return latest_version
         else:
             log("INFO", "当前已是最新版本")
+            log("INFO", f"当前版本: {current_version}, GitHub版本: {latest_version}")
             return None
     return None
 
@@ -138,8 +141,13 @@ def download_firmware(version):
         # 构建固件下载URL
         firmware_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/firmware.bin"
         
-        # 下载固件
-        response = urequests.get(firmware_url)
+        # 添加User-Agent头
+        headers = {
+            "User-Agent": "ESP32-MiDevice"
+        }
+        
+        # 下载固件，设置超时为30秒
+        response = urequests.get(firmware_url, headers=headers, timeout=30)
         if response.status_code == 200:
             # 保存固件到本地
             with open(FIRMWARE_PATH, 'wb') as f:
@@ -149,6 +157,8 @@ def download_firmware(version):
             return True
         else:
             log("ERROR", f"固件下载失败: {response.status_code}")
+            response_text = response.text
+            log("ERROR", f"下载响应: {response_text}")
             response.close()
             return False
     except Exception as e:
