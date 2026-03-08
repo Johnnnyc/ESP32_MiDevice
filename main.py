@@ -168,15 +168,29 @@ def perform_ota_update():
 def push_data_to_firebase(data):
     """推送数据到Firebase"""
     try:
-        # 减少日志输出，节省内存
-        url = f"{FIREBASE_URL}/data.json"
+        # 进一步简化，减少内存使用
+        import gc
+        gc.collect()  # 推送前进行内存回收
+        
+        # 简化数据结构，只推送必要字段
+        simple_data = {
+            'temp': data.get('temperature'),
+            'humid': data.get('humidity'),
+            'time': data.get('datetime')
+        }
+        
+        # 使用更简单的URL构建
+        url = FIREBASE_URL + "/data.json"
         headers = {"Content-Type": "application/json"}
-        # 设置超时为10秒，避免无限等待
-        response = urequests.put(url, json=data, headers=headers, timeout=10)
+        
+        # 使用更轻量的请求方式
+        response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
         response.close()
+        
+        gc.collect()  # 推送后进行内存回收
         return True
     except Exception:
-        # 减少日志输出，节省内存
+        # 静默失败，减少内存使用
         return False
 
 def log(level, message):
