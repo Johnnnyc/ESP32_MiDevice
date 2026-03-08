@@ -334,7 +334,7 @@ def read_sensor():
                 # 使用国内可用的NTP服务器
                 ntptime.host = 'ntp.aliyun.com'  # 阿里云NTP服务器
                 ntptime.settime()  # 同步网络时间
-                last_ntp_sync = current_epoch
+                last_ntp_sync = time.time()  # 使用同步后的时间
                 log("INFO", "NTP时间同步成功")
             except Exception as e:
                 log("ERROR", f'NTP同步失败: {e}')
@@ -342,7 +342,7 @@ def read_sensor():
                 try:
                     ntptime.host = 'cn.pool.ntp.org'  # 中国NTP服务器池
                     ntptime.settime()
-                    last_ntp_sync = current_epoch
+                    last_ntp_sync = time.time()  # 使用同步后的时间
                     log("INFO", "NTP时间同步成功(备用服务器)")
                 except Exception as e2:
                     log("ERROR", f'备用NTP服务器同步失败: {e2}')
@@ -522,11 +522,16 @@ def main():
             time.sleep(1)
         return
     
+    global last_firebase_push
     error_count = 0  # 错误计数器
     last_reinit_time = time.time()  # 初始化重新初始化时间
     last_ota_check = time.time()  # 初始化OTA检查时间
     last_firebase_push = time.time()  # 初始化Firebase推送时间
     last_ntp_sync = 0  # 初始化为0，表示从未同步过NTP
+    
+    # 使用计数器来控制推送间隔，避免系统时间跳变的影响
+    firebase_push_counter = 0
+    push_interval_seconds = DATA_PUSH_INTERVAL / 1000
     
     # 系统启动时检查版本更新
     log("INFO", "系统启动，检查版本更新...")
@@ -618,13 +623,16 @@ def main():
                 check_for_updates()
                 last_ota_check = current_time
             
-            # 检查是否需要推送数据到Firebase（每3分钟）
-            # 已在外层定义为全局变量，此处无需再次声明
-            if current_time - last_firebase_push >= DATA_PUSH_INTERVAL / 1000:  # 转换为秒
+            # 使用计数器来控制推送间隔，避免系统时间跳变的影响
+            firebase_push_counter += 1  # 每次循环增加计数器
+            
+            log("DEBUG", f"推送计数器: {firebase_push_counter}, 推送间隔: {push_interval_seconds}")
+            if firebase_push_counter >= push_interval_seconds:
                 log("INFO", "定期推送数据到Firebase...")
                 data = read_sensor()
                 push_data_to_firebase(data)
-                last_firebase_push = current_time
+                log("DEBUG", "重置推送计数器")
+                firebase_push_counter = 0  # 重置计数器
             
             # 实时检查消息
             try:
@@ -659,9 +667,10 @@ def main():
             
             # MQTT连接正常时，LED缓慢闪烁
             led.value(1)
-            time.sleep(LED_BLINK_INTERVAL)
+            time.sleep(0.5)  # 0.5秒
             led.value(0)
-            time.sleep(LED_BLINK_INTERVAL)
+            time.sleep(0.5)  # 0.5秒
+            # 每次循环总时间约为1秒，确保计数器准确性
             
             # 重置错误计数器（如果成功运行）
             error_count = 0
