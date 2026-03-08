@@ -610,7 +610,7 @@ def main():
             
             # 检查是否需要推送数据到Firebase（每3分钟）
             # 已在外层定义为全局变量，此处无需再次声明
-            if current_time - last_firebase_push >= DATA_PUSH_INTERVAL:
+            if current_time - last_firebase_push >= DATA_PUSH_INTERVAL / 1000:  # 转换为秒
                 log("INFO", "定期推送数据到Firebase...")
                 data = read_sensor()
                 push_data_to_firebase(data)
