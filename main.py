@@ -67,22 +67,27 @@ def get_latest_version():
     """从GitHub获取最新版本信息"""
     for retry in range(GITHUB_MAX_RETRIES):
         try:
-            log("INFO", f"正在检查GitHub最新版本... (尝试 {retry+1}/{GITHUB_MAX_RETRIES})")
-            # 添加User-Agent头，GitHub API要求所有请求必须包含User-Agent
-            headers = {
-                "User-Agent": "ESP32-MiDevice"
-            }
-            # 设置超时为10秒
-            response = urequests.get(GITHUB_API_URL, headers=headers, timeout=10)
+            log("INFO", "正在检查GitHub最新版本...")
+            # 最小化HTTP请求，减少内存使用
+            headers = {"User-Agent": "ESP32-MiDevice"}
+            # 使用更短的超时
+            response = urequests.get(GITHUB_API_URL, headers=headers, timeout=5)
+            
             if response.status_code == 200:
-                data = response.json()
-                latest_version = data.get("tag_name", "")
-                # 移除可能的"v"前缀
-                if latest_version.startswith("v"):
-                    latest_version = latest_version[1:]
-                log("INFO", f"GitHub最新版本: {latest_version}")
+                # 简化JSON解析，减少内存使用
+                response_text = response.text
                 response.close()
-                return latest_version
+                # 手动解析tag_name，避免完整JSON解析
+                if '"tag_name":"' in response_text:
+                    start_idx = response_text.find('"tag_name":"') + 10
+                    end_idx = response_text.find('"', start_idx)
+                    if start_idx > 10 and end_idx > start_idx:
+                        latest_version = response_text[start_idx:end_idx]
+                        # 移除可能的"v"前缀
+                        if latest_version.startswith("v"):
+                            latest_version = latest_version[1:]
+                        log("INFO", f"GitHub最新版本: {latest_version}")
+                        return latest_version
             elif response.status_code == 404:
                 # 404错误表示仓库没有发布版本，这是正常情况
                 log("INFO", "GitHub仓库暂无发布版本，使用当前版本")
@@ -90,15 +95,14 @@ def get_latest_version():
                 return FIRMWARE_VERSION
             else:
                 log("ERROR", f"获取GitHub版本失败: {response.status_code}")
-                response_text = response.text
-                log("ERROR", f"GitHub响应: {response_text}")
                 response.close()
-                if retry < GITHUB_MAX_RETRIES - 1:
-                    log("INFO", f"GitHub API请求限制或网络问题，{GITHUB_RETRY_DELAY//1000}秒后重试...")
-                    time.sleep(GITHUB_RETRY_DELAY / 1000)
-                else:
-                    log("INFO", "已达到最大重试次数，将在下次检查时重试")
-                    return None
+            
+            if retry < GITHUB_MAX_RETRIES - 1:
+                log("INFO", f"GitHub API请求限制或网络问题，{GITHUB_RETRY_DELAY//1000}秒后重试...")
+                time.sleep(GITHUB_RETRY_DELAY / 1000)
+            else:
+                log("INFO", "已达到最大重试次数，将在下次检查时重试")
+                return None
         except Exception as e:
             log("ERROR", f"获取GitHub版本异常: {e}")
             if retry < GITHUB_MAX_RETRIES - 1:
@@ -190,15 +194,20 @@ def push_data_to_firebase(data):
         log("INFO", "正在推送数据到Firebase...")
         url = f"{FIREBASE_URL}/data.json"
         headers = {"Content-Type": "application/json"}
-        # 使用PUT请求替代POST请求，确保数据正确写入
-        response = urequests.put(url, json=data, headers=headers)
+        # 设置超时为15秒，避免无限等待
+        response = urequests.put(url, json=data, headers=headers, timeout=15)
         log("INFO", f"Firebase推送状态码: {response.status_code}")
-        response_text = response.text
-        log("INFO", f"Firebase响应: {response_text}")
+        # 简化响应处理，减少内存使用
         response.close()
         return True
+    except OSError as e:
+        if "ETIMEDOUT" in str(e):
+            log("ERROR", "Firebase推送超时，请检查网络连接")
+        else:
+            log("ERROR", f"Firebase推送失败: {e}")
+        return False
     except Exception as e:
-        log("ERROR", f"Firebase推送失败: {e}")
+        log("ERROR", f"Firebase推送异常: {e}")
         return False
 
 def log(level, message):
@@ -306,6 +315,11 @@ def connect():
 
 def read_sensor():
     """读取传感器数据"""
+    # 初始化变量
+    temperature = None
+    humidity = None
+    time_str = ""
+    
     # 读取温湿度数据
     try:
         dht.measure()  # 测量温湿度
@@ -313,8 +327,6 @@ def read_sensor():
         humidity = dht.humidity()  # 获取湿度
     except Exception as e:
         log("ERROR", f'读取温湿度失败: {e}')
-        temperature = None
-        humidity = None
 
     # 获取网络时间并格式化为字符串
     global last_ntp_sync
@@ -322,33 +334,48 @@ def read_sensor():
         current_epoch = time.time()
         # 每小时同步一次NTP时间
         if last_ntp_sync == 0 or current_epoch - last_ntp_sync > 3600:
-            ntptime.settime()  # 同步网络时间
-            last_ntp_sync = current_epoch
-            log("INFO", "NTP时间同步成功")
+            # 减少NTP同步频率，节省内存和网络资源
+            try:
+                ntptime.settime()  # 同步网络时间
+                last_ntp_sync = current_epoch
+                log("INFO", "NTP时间同步成功")
+            except Exception as e:
+                log("ERROR", f'NTP同步失败: {e}')
+        
+        # 格式化时间
         current_time = time.localtime()
+        # 简化时间格式化，减少内存使用
+        year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
         # 添加时区偏移量（东八区为 +8 小时）
-        current_time = (current_time[0], current_time[1], current_time[2],
-                        current_time[3] + 8, current_time[4], current_time[5],
-                        current_time[6], current_time[7])
-        time_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
-            current_time[0], current_time[1], current_time[2],
-            current_time[3], current_time[4], current_time[5]
-        )
+        hour += 8
+        if hour >= 24:
+            hour -= 24
+        # 直接格式化字符串，减少中间变量
+        time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     except Exception as e:
         log("ERROR", f'获取网络时间失败: {e}')
         # 获取当前时间并格式化为字符串
         current_time = time.localtime()
-        time_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
-            current_time[0], current_time[1], current_time[2],
-            current_time[3]+8, current_time[4], current_time[5]
-        )
+        year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
+        hour += 8
+        if hour >= 24:
+            hour -= 24
+        time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     
     # 构建数据字典
     data = {
         'temperature': temperature,
         'humidity': humidity,
-        'datetime': time_str  # 使用格式化后的时间字符串
+        'datetime': time_str
     }
+    
+    # 尝试进行内存回收
+    try:
+        import gc
+        gc.collect()
+    except:
+        pass
+    
     return data
 
 
