@@ -83,6 +83,11 @@ def get_latest_version():
                 log("INFO", f"GitHub最新版本: {latest_version}")
                 response.close()
                 return latest_version
+            elif response.status_code == 404:
+                # 404错误表示仓库没有发布版本，这是正常情况
+                log("INFO", "GitHub仓库暂无发布版本，使用当前版本")
+                response.close()
+                return FIRMWARE_VERSION
             else:
                 log("ERROR", f"获取GitHub版本失败: {response.status_code}")
                 response_text = response.text
