@@ -54,6 +54,6 @@ MQTT_UPDATE_TOPIC = "esp32/update"  # 接收更新指令的主题
 # OTA相关
 OTA_UPDATE_INTERVAL = 3600000  # 版本检查间隔（1小时）
 FIRMWARE_PATH = "/firmware.bin"  # 固件保存路径
-ENABLE_GITHUB_CHECK = True  # 是否启用GitHub版本检查
+ENABLE_GITHUB_CHECK = False  # 禁用GitHub版本检查以减少内存使用
 GITHUB_RETRY_DELAY = 60000  # GitHub API失败后重试延迟（1分钟）
 GITHUB_MAX_RETRIES = 3  # GitHub API最大重试次数
