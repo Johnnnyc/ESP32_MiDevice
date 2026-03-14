@@ -64,11 +64,11 @@ def push_data_to_firebase(data):
         }
         
         # 使用更简单的URL构建
-        url = FIREBASE_URL + "/data.json"
+        url = FIREBASE_URL + "/sensor-data.json"
         headers = {"Content-Type": "application/json"}
         
-        # 使用更轻量的请求方式
-        response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
+        # 使用POST请求保存历史数据
+        response = urequests.post(url, json=simple_data, headers=headers, timeout=5)
         response.close()
         
         # 保留成功日志，便于调试
