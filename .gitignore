@@ -21,3 +21,6 @@ firmware.bin
 *.swp
 *.swo
 *~
+
+# 忽略Firebase服务账号密钥文件
+*firebase-adminsdk-*.json
