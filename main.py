@@ -63,12 +63,15 @@ def push_data_to_firebase(data):
             'time': data.get('datetime')
         }
         
+        # 使用时间戳作为数据ID
+        import time
+        timestamp = str(int(time.time()))
         # 使用更简单的URL构建
-        url = FIREBASE_URL + "/sensor-data.json"
+        url = FIREBASE_URL + "/sensor-data/" + timestamp + ".json"
         headers = {"Content-Type": "application/json"}
         
-        # 使用POST请求保存历史数据
-        response = urequests.post(url, json=simple_data, headers=headers, timeout=5)
+        # 使用PUT请求保存历史数据，使用时间戳作为ID
+        response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
         response.close()
         
         # 保留成功日志，便于调试
