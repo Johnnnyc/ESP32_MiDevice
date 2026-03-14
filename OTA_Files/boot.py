@@ -5,15 +5,12 @@ import urequests
 import os
 import machine
 
-# WiFi 信息（使用项目中的WiFi配置）
-WIFI_CONFIGS = [
-    {'ssid': 'HUAWEI-1CRES9-A3', 'password': 'Zq900725'},
-    {'ssid': 'P30', 'password': 'abc123456'},
-    {'ssid': '', 'password': ''}
-]
+# WiFi 信息（改成你自己的）
+WIFI_SSID = "你的WiFi名"
+WIFI_PWD = "你的WiFi密码"
 
 # 云端更新脚本
-UPDATE_URL = "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/updata.py"
+UPDATE_URL = "https://gitee.com/你的用户名/仓库/raw/master/updata.py"
 
 def connect_wifi():
     """
@@ -23,44 +20,18 @@ def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     
-    if wlan.isconnected():
-        print("WiFi已连接")
-        print(f'网络配置: {wlan.ifconfig()}')
-        return True
-    
-    # 尝试连接每个WiFi配置
-    for config in WIFI_CONFIGS:
-        if not config['ssid']:  # 跳过空配置
-            continue
-            
-        print(f"正在尝试连接WiFi: {config['ssid']}...")
-        try:
-            wlan.connect(config['ssid'], config['password'])
-            
-            # 等待连接，最多等待20秒
-            timeout = 0
-            while not wlan.isconnected():
-                time.sleep(0.5)
-                timeout += 1
-                if timeout > 40:
-                    print(f"连接 {config['ssid']} 失败")
-                    break
-            
-            if wlan.isconnected():
-                print("WiFi连接成功")
-                print(f'网络配置: {wlan.ifconfig()}')
-                return True
-            
-            # 如果连接失败，断开当前连接
-            wlan.disconnect()
-            time.sleep(1)
-            
-        except Exception as e:
-            print(f"连接 {config['ssid']} 时出错: {e}")
-            continue
-    
-    print('无法连接到任何已知WiFi')
-    return False
+    if not wlan.isconnected():
+        print("正在连接WiFi...")
+        wlan.connect(WIFI_SSID, WIFI_PWD)
+        timeout = 0
+        while not wlan.isconnected():
+            time.sleep(0.5)
+            timeout += 1
+            if timeout > 40:
+                print("WiFi 连接失败")
+                return False
+    print("WiFi 连接成功:", wlan.ifconfig())
+    return True
 
 def backup_file(file_path):
     """
@@ -113,10 +84,10 @@ try:
     
     if connect_wifi():
         print("开始OTA检查...")
-        resp = urequests.get(UPDATE_URL, timeout=10)
+        resp = urequests.get(UPDATE_URL)
         data = resp.content
         
-        # 判断是否更新（第10个字符是1就更新）
+        # 判断是否更新（文章里的逻辑：第10个字符是1就更新）
         if len(data) > 9 and chr(data[9]) == "1":
             print("检测到新版本，开始更新...")
             # 备份现有文件
