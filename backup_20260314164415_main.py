@@ -46,7 +46,123 @@ last_reinit_time = 0  # 上次重新初始化时间戳
 last_ota_check = 0  # 上次OTA检查时间戳
 last_firebase_push = 0  # 上次Firebase推送时间戳
 
+# 版本比较函数
+def compare_versions(version1, version2):
+    """比较两个版本号，返回1如果version1>version2，0如果相等，-1如果version1<version2"""
+    v1_parts = list(map(int, version1.split('.')))
+    v2_parts = list(map(int, version2.split('.')))
+    
+    for i in range(max(len(v1_parts), len(v2_parts))):
+        v1 = v1_parts[i] if i < len(v1_parts) else 0
+        v2 = v2_parts[i] if i < len(v2_parts) else 0
+        
+        if v1 > v2:
+            return 1
+        elif v1 < v2:
+            return -1
+    return 0
 
+# 获取GitHub最新版本
+def get_latest_version():
+    """从GitHub获取最新版本信息"""
+    try:
+        # 最小化HTTP请求，减少内存使用
+        headers = {"User-Agent": "ESP32-MiDevice"}
+        # 使用更短的超时
+        response = urequests.get(GITHUB_API_URL, headers=headers, timeout=3)
+        
+        if response.status_code == 200:
+            # 简化JSON解析，减少内存使用
+            response_text = response.text
+            response.close()
+            
+            # 手动解析tag_name，避免完整JSON解析
+            tag_start = response_text.find('"tag_name":"')
+            if tag_start != -1:
+                tag_start += 10
+                tag_end = response_text.find('"', tag_start)
+                if tag_end > tag_start:
+                    latest_version = response_text[tag_start:tag_end]
+                    # 移除可能的"v"前缀
+                    if latest_version.startswith("v"):
+                        latest_version = latest_version[1:]
+                    return latest_version
+        elif response.status_code == 404:
+            # 404错误表示仓库没有发布版本，这是正常情况
+            response.close()
+            return FIRMWARE_VERSION
+        
+        response.close()
+        return None
+    except Exception as e:
+        # 减少日志输出，节省内存
+        return None
+
+# 检查版本更新
+def check_for_updates():
+    """检查是否有版本更新"""
+    if not ENABLE_GITHUB_CHECK:
+        return None
+    
+    current_version = FIRMWARE_VERSION
+    latest_version = get_latest_version()
+    
+    if latest_version and latest_version != current_version:
+        comparison = compare_versions(latest_version, current_version)
+        if comparison > 0:
+            return latest_version
+    
+    return None
+
+# 下载固件
+def download_firmware(version):
+    """下载最新固件"""
+    try:
+        log("INFO", f"正在下载版本 {version} 的固件...")
+        # 构建固件下载URL
+        firmware_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/firmware.bin"
+        
+        # 添加User-Agent头
+        headers = {
+            "User-Agent": "ESP32-MiDevice"
+        }
+        
+        # 下载固件，设置超时为30秒
+        response = urequests.get(firmware_url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            # 保存固件到本地
+            with open(FIRMWARE_PATH, 'wb') as f:
+                f.write(response.content)
+            log("INFO", f"固件下载成功，大小: {len(response.content)} 字节")
+            response.close()
+            return True
+        else:
+            log("ERROR", f"固件下载失败: {response.status_code}")
+            response_text = response.text
+            log("ERROR", f"下载响应: {response_text}")
+            response.close()
+            return False
+    except Exception as e:
+        log("ERROR", f"固件下载异常: {e}")
+        return False
+
+# 执行OTA更新
+def perform_ota_update():
+    """执行OTA更新"""
+    if not ENABLE_GITHUB_CHECK:
+        log("INFO", "GitHub版本检查已禁用，跳过OTA更新")
+        return
+    
+    latest_version = check_for_updates()
+    if latest_version:
+        if download_firmware(latest_version):
+            log("INFO", "准备重启设备进行更新...")
+            # 重启设备
+            machine.reset()
+        else:
+            log("ERROR", "固件下载失败，无法更新")
+    else:
+        log("INFO", "没有可用的更新")
 
 # 推送数据到Firebase
 def push_data_to_firebase(data):
@@ -283,7 +399,8 @@ def on_message(topic, msg):
         
         # 检查是否是更新指令
         if topic.decode() == MQTT_UPDATE_TOPIC and msg.decode() == "update":
-            log("INFO", "收到更新指令，使用boot.py中的OTA功能进行更新")
+            log("INFO", "收到更新指令，开始检查更新...")
+            perform_ota_update()
         elif msg.decode() == "获取温湿度":
             led.value(1)  # 点亮LED
             read_sent(client)  # 读取传感器数据并发送
@@ -416,7 +533,9 @@ def main():
     firebase_push_counter = 0
     push_interval_seconds = DATA_PUSH_INTERVAL / 1000
     
-
+    # 系统启动时检查版本更新
+    log("INFO", "系统启动，检查版本更新...")
+    check_for_updates()
     
     log("INFO", "进入主循环")
     
@@ -498,7 +617,11 @@ def main():
                 except:
                     continue
             
-
+            # 检查是否需要定期OTA版本检查
+            if current_time - last_ota_check >= OTA_UPDATE_INTERVAL:
+                log("INFO", "定期检查版本更新...")
+                check_for_updates()
+                last_ota_check = current_time
             
             # 使用计数器来控制推送间隔，避免系统时间跳变的影响
             firebase_push_counter += 1  # 每次循环增加计数器
