@@ -503,7 +503,7 @@ def main():
             # 使用计数器来控制推送间隔，避免系统时间跳变的影响
             firebase_push_counter += 1  # 每次循环增加计数器
             
-            log("DEBUG", f"推送计数器: {firebase_push_counter}, 推送间隔: {push_interval_seconds}")
+            #log("DEBUG", f"推送计数器: {firebase_push_counter}, 推送间隔: {push_interval_seconds}")
             if firebase_push_counter >= push_interval_seconds:
                 log("INFO", "定期推送数据到Firebase...")
                 data = read_sensor()
