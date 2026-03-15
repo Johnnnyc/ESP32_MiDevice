@@ -11,10 +11,20 @@ def backup_file(file_path):
     备份文件
     """
     try:
-        if os.path.exists(file_path):
+        # 检查文件是否存在（MicroPython兼容方式）
+        try:
+            os.stat(file_path)
+            file_exists = True
+        except OSError:
+            file_exists = False
+        
+        if file_exists:
             timestamp = time.localtime()
-            backup_name = f"backup_{timestamp[0]}{timestamp[1]:02d}{timestamp[2]:02d}{timestamp[3]:02d}{timestamp[4]:02d}{timestamp[5]:02d}_{os.path.basename(file_path)}"
-            backup_path = os.path.join(os.path.dirname(file_path), backup_name)
+            # 提取文件名（MicroPython兼容方式）
+            file_name = file_path.split('/')[-1].split('\\')[-1]
+            backup_name = f"backup_{timestamp[0]}{timestamp[1]:02d}{timestamp[2]:02d}{timestamp[3]:02d}{timestamp[4]:02d}{timestamp[5]:02d}_{file_name}"
+            # 构建备份路径（MicroPython兼容方式）
+            backup_path = backup_name
             with open(file_path, 'rb') as src, open(backup_path, 'wb') as dst:
                 dst.write(src.read())
             print(f"已备份文件: {backup_name}")
@@ -23,8 +33,7 @@ def backup_file(file_path):
 
 # 要更新的文件列表
 file_map = {
-    "main.py": "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/main.py",
-    "updata.py": "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/updata.py"
+    "main.py": "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/main.py"
 }
 
 print("开始批量更新...")
