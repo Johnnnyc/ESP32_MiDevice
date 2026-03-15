@@ -1,6 +1,6 @@
-# update=0
+# update=1
 # 上面这行决定是否更新（第10个字符=1）
-ver = 1.2
+ver = 2.0
 
 import urequests
 import os
