@@ -148,25 +148,6 @@ PASSWORD = 'Zq??900725'
 TOPIC = "esp32/topic"
 CA_CERTS_PATH = "./ca.crt"  # use the public broker CA
 
-def create_ssl_context():
-    """创建 SSL 上下文，简化版本以减少内存使用"""
-    try:
-        import gc
-        gc.collect()
-        log("INFO", f"创建SSL上下文前可用内存：{gc.mem_free()} bytes")
-        
-        # 尝试创建简化的SSL上下文
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        # 禁用证书验证以减少内存使用
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        log("INFO", "使用简化的SSL上下文（禁用证书验证）")
-        return ssl_context
-    except Exception as e:
-        log("ERROR", f"创建 SSL 上下文失败：{e}")
-        return None
-
-
 def connect():
     global client
     retry_count = 0
@@ -188,50 +169,38 @@ def connect():
                     log("WARNING", f"断开连接时发生错误: {e}")
                 client = None
 
-            # 创建SSL上下文
-            ssl_context = None
+            # 直接尝试不使用SSL连接，避免内存不足问题
+            log("INFO", "尝试不使用 SSL 连接...")
             try:
-                ssl_context = create_ssl_context()
-                if ssl_context is None:
-                    log("WARNING", "SSL 上下文创建失败，尝试不使用 SSL 连接...")
-            except Exception as e:
-                log("ERROR", f"创建SSL上下文失败: {e}")
-                retry_count += 1
-                time.sleep(5)
-                continue
-
-            # 创建MQTT客户端并连接
-            try:
-                if ssl_context:
-                    client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=MQTT_KEEPALIVE)
-                    log("INFO", "使用 SSL 加密连接...")
-                else:
-                    # 不使用 SSL 连接 (仅用于调试)
-                    client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, keepalive=MQTT_KEEPALIVE)
-                    log("INFO", "使用非 SSL 连接...")
-                
-                # 尝试连接
-                log("INFO", f"正在连接 MQTT Broker: {SERVER}:{PORT}...")
+                # 使用非SSL端口
+                client = MQTTClient(CLIENT_ID, SERVER, 1883, USERNAME, PASSWORD, keepalive=MQTT_KEEPALIVE)
+                log("INFO", f"正在连接 MQTT Broker: {SERVER}:1883...")
                 client.connect()
-                log("INFO", f'Connected to MQTT Broker "{SERVER}"')
+                log("INFO", f'Connected to MQTT Broker "{SERVER}" (非SSL)')
                 gc.collect()  # 连接成功后回收内存
                 log("INFO", f"连接后可用内存：{gc.mem_free()} bytes")
                 return client
-            except Exception as ssl_error:
-                if ssl_context and "MBEDTLS" in str(ssl_error):
-                    # SSL 证书验证失败，尝试不使用 SSL
-                    log("WARNING", f"SSL 连接失败：{ssl_error}")
-                    log("INFO", "尝试不使用 SSL 连接...")
-                    try:
-                        client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, keepalive=MQTT_KEEPALIVE)
-                        client.connect()
-                        log("WARNING", "⚠ 已降级为非 SSL 连接 (不安全)")
-                        return client
-                    except Exception as fallback_error:
-                        log("ERROR", f"非 SSL 连接也失败：{fallback_error}")
-                        raise ssl_error  # 抛出原始 SSL 错误
-                else:
-                    raise ssl_error
+            except Exception as error:
+                log("ERROR", f"非 SSL 连接失败：{error}")
+                # 尝试使用SSL连接作为备选
+                log("INFO", "尝试使用 SSL 连接...")
+                try:
+                    # 简化SSL上下文创建
+                    import ssl
+                    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    
+                    client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=MQTT_KEEPALIVE)
+                    log("INFO", f"正在连接 MQTT Broker: {SERVER}:{PORT} (SSL)...")
+                    client.connect()
+                    log("INFO", f'Connected to MQTT Broker "{SERVER}" (SSL)')
+                    gc.collect()
+                    log("INFO", f"连接后可用内存：{gc.mem_free()} bytes")
+                    return client
+                except Exception as ssl_error:
+                    log("ERROR", f"SSL 连接也失败：{ssl_error}")
+                    raise error
 
         except Exception as e:
             retry_count += 1
