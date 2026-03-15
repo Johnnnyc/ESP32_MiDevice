@@ -121,6 +121,19 @@ def clean_old_backups():
     except Exception as e:
         print(f"清理旧备份失败: {e}")
 
+# 获取当前版本号
+def get_current_version():
+    try:
+        with open("updata.py", "r") as f:
+            for line in f:
+                if line.startswith("ver ="):
+                    try:
+                        return float(line.split("=")[1].strip())
+                    except:
+                        return 0.0
+    except:
+        return 0.0
+
 # 主逻辑
 try:
     # 清理旧备份
@@ -138,17 +151,33 @@ try:
                 resp = urequests.get(UPDATE_URL, timeout=30)  # 增加超时时间到30秒
                 data = resp.content
                 
-                # 判断是否更新（第10个字符是1就更新）
+                # 检查更新标志（第10个字符是1就更新）
                 if len(data) > 9 and chr(data[9]) == "1":
-                    print("检测到新版本，开始更新...")
-                    # 备份现有文件
-                    backup_file("main.py")
+                    # 检查版本号
+                    current_version = get_current_version()
+                    # 解析新版本号
+                    new_version = 0.0
+                    for line in data.decode('utf-8').split('\n'):
+                        if line.startswith("ver ="):
+                            try:
+                                new_version = float(line.split("=")[1].strip())
+                                break
+                            except:
+                                pass
                     
-                    with open("updata.py", "wb") as f:
-                        f.write(data)
-                    
-                    # 运行更新脚本
-                    import updata
+                    # 只有当新版本号大于当前版本号时才更新
+                    if new_version > current_version:
+                        print(f"检测到新版本 v{new_version}，当前版本 v{current_version}，开始更新...")
+                        # 备份现有文件
+                        backup_file("main.py")
+                        
+                        with open("updata.py", "wb") as f:
+                            f.write(data)
+                        
+                        # 运行更新脚本
+                        import updata
+                    else:
+                        print(f"版本号相同（v{current_version}），无需更新")
                 else:
                     print("无需更新")
                 ota_success = True
