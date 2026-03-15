@@ -1,6 +1,6 @@
 # update=1
 # 上面这行决定是否更新（第10个字符=1）
-ver = 2.0
+ver = 1.2
 
 import urequests
 import os
@@ -40,17 +40,39 @@ print("开始批量更新...")
 
 try:
     for filename, url in file_map.items():
-        print(f"更新: {filename}")
+        print(f"\n更新: {filename}")
+        print(f"下载地址：{url}")
         # 备份现有文件
+        print("备份现有文件...")
         backup_file(filename)
-        # 下载新文件
-        res = urequests.get(url, timeout=10)
-        with open(filename, "wb") as f:
-            f.write(res.content)
-        res.close()
-    print("所有文件更新完成！")
+        # 下载新文件 (增加重试机制)
+        print("下载新版本文件...")
+        max_retries = 3
+        retry_count = 0
+        download_success = False
+        
+        while retry_count < max_retries and not download_success:
+            try:
+                res = urequests.get(url, timeout=15)  # 增加超时时间到15秒
+                print(f"下载成功，文件大小：{len(res.content)} bytes")
+                
+                # 写入文件
+                with open(filename, "wb") as f:
+                    f.write(res.content)
+                res.close()  # 释放资源
+                print(f"✓ {filename} 更新完成")
+                download_success = True
+            except Exception as download_error:
+                retry_count += 1
+                print(f"⚠ 下载失败：{download_error}")
+                if retry_count < max_retries:
+                    print(f"{retry_count}/{max_retries} 重试中...")
+                    time.sleep(2)
+                else:
+                    print(f"跳过 {filename} 的更新，继续使用旧版本")
+    print("\n===== 更新完成 =====")
 except Exception as e:
-    print(f"更新失败: {e}")
+    print(f"\n更新过程出错：{e}")
 
 # 重启设备
 import machine

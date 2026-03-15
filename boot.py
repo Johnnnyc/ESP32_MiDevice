@@ -128,24 +128,37 @@ try:
     
     if connect_wifi():
         print("开始OTA检查...")
-        try:
-            resp = urequests.get(UPDATE_URL, timeout=20)  # 设置超时时间为20秒
-            data = resp.content
-            
-            # 判断是否更新（第10个字符是1就更新）
-            if len(data) > 9 and chr(data[9]) == "1":
-                print("检测到新版本，开始更新...")
-                # 备份现有文件
-                backup_file("main.py")
+        max_retries = 3
+        retry_count = 0
+        ota_success = False
+        
+        while retry_count < max_retries and not ota_success:
+            try:
+                print(f"OTA检查尝试 {retry_count + 1}/{max_retries}...")
+                resp = urequests.get(UPDATE_URL, timeout=30)  # 增加超时时间到30秒
+                data = resp.content
                 
-                with open("updata.py", "wb") as f:
-                    f.write(data)
-                
-                # 运行更新脚本
-                import updata
-            else:
-                print("无需更新")
-        except Exception as e:
-            print("OTA检查失败，继续正常运行")
+                # 判断是否更新（第10个字符是1就更新）
+                if len(data) > 9 and chr(data[9]) == "1":
+                    print("检测到新版本，开始更新...")
+                    # 备份现有文件
+                    backup_file("main.py")
+                    
+                    with open("updata.py", "wb") as f:
+                        f.write(data)
+                    
+                    # 运行更新脚本
+                    import updata
+                else:
+                    print("无需更新")
+                ota_success = True
+            except Exception as e:
+                retry_count += 1
+                print(f"OTA检查失败: {e}")
+                if retry_count < max_retries:
+                    print("3秒后重试...")
+                    time.sleep(3)
+                else:
+                    print("OTA检查失败，继续正常运行")
 except Exception as e:
     print("初始化失败，继续正常运行")

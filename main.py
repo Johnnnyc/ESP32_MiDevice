@@ -196,19 +196,28 @@ def connect():
 
 
 def read_sensor():
-    """读取传感器数据"""
+    """读取传感器数据，增加重试机制"""
     # 初始化变量
     temperature = None
     humidity = None
     time_str = ""
     
-    # 读取温湿度数据
-    try:
-        dht.measure()  # 测量温湿度
-        temperature = dht.temperature()  # 获取温度
-        humidity = dht.humidity()  # 获取湿度
-    except Exception as e:
-        log("ERROR", f'读取温湿度失败: {e}')
+    # 读取温湿度数据，增加重试机制
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries and (temperature is None or humidity is None):
+        try:
+            dht.measure()  # 测量温湿度
+            temperature = dht.temperature()  # 获取温度
+            humidity = dht.humidity()  # 获取湿度
+            if temperature is not None and humidity is not None:
+                log("INFO", f'DHT11读取成功: 温度=%.1f°C, 湿度=%.1f%%' % (temperature, humidity))
+        except Exception as e:
+            retry_count += 1
+            log("ERROR", f'读取温湿度失败 (尝试 {retry_count}/{max_retries}): {e}')
+            if retry_count < max_retries:
+                time.sleep(0.5)  # 短暂延迟后重试
 
     # 获取网络时间并格式化为字符串
     global last_ntp_sync
