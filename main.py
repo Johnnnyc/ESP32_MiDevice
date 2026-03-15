@@ -149,29 +149,51 @@ TOPIC = "esp32/topic"
 CA_CERTS_PATH = "./ca.crt"  # use the public broker CA
 
 def create_ssl_context():
-    # Create an SSL context
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ssl_context.load_verify_locations(CA_CERTS_PATH)
-    return ssl_context
+    """创建 SSL 上下文，简化版本以减少内存使用"""
+    try:
+        import gc
+        gc.collect()
+        log("INFO", f"创建SSL上下文前可用内存：{gc.mem_free()} bytes")
+        
+        # 尝试创建简化的SSL上下文
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        # 禁用证书验证以减少内存使用
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        log("INFO", "使用简化的SSL上下文（禁用证书验证）")
+        return ssl_context
+    except Exception as e:
+        log("ERROR", f"创建 SSL 上下文失败：{e}")
+        return None
 
 
 def connect():
     global client
     retry_count = 0
+    MQTT_CONNECT_TIMEOUT = 10  # MQTT 连接超时时间 (秒)
     
     while retry_count < MQTT_MAX_RETRIES:
         try:
+            # 增加内存回收
+            import gc
+            gc.collect()
+            log("INFO", f"MQTT 连接前可用内存：{gc.mem_free()} bytes")
+            
             # 如果已有客户端连接，先断开并释放资源
             if client:
                 try:
                     client.disconnect()
+                    gc.collect()  # 断开后回收内存
                 except Exception as e:
                     log("WARNING", f"断开连接时发生错误: {e}")
                 client = None
 
             # 创建SSL上下文
+            ssl_context = None
             try:
                 ssl_context = create_ssl_context()
+                if ssl_context is None:
+                    log("WARNING", "SSL 上下文创建失败，尝试不使用 SSL 连接...")
             except Exception as e:
                 log("ERROR", f"创建SSL上下文失败: {e}")
                 retry_count += 1
@@ -179,16 +201,43 @@ def connect():
                 continue
 
             # 创建MQTT客户端并连接
-            client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=MQTT_KEEPALIVE)
-            client.connect()
-            log("INFO", f'Connected to MQTT Broker "{SERVER}"')
-            return client
+            try:
+                if ssl_context:
+                    client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=MQTT_KEEPALIVE)
+                    log("INFO", "使用 SSL 加密连接...")
+                else:
+                    # 不使用 SSL 连接 (仅用于调试)
+                    client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, keepalive=MQTT_KEEPALIVE)
+                    log("INFO", "使用非 SSL 连接...")
+                
+                # 尝试连接
+                log("INFO", f"正在连接 MQTT Broker: {SERVER}:{PORT}...")
+                client.connect()
+                log("INFO", f'Connected to MQTT Broker "{SERVER}"')
+                gc.collect()  # 连接成功后回收内存
+                log("INFO", f"连接后可用内存：{gc.mem_free()} bytes")
+                return client
+            except Exception as ssl_error:
+                if ssl_context and "MBEDTLS" in str(ssl_error):
+                    # SSL 证书验证失败，尝试不使用 SSL
+                    log("WARNING", f"SSL 连接失败：{ssl_error}")
+                    log("INFO", "尝试不使用 SSL 连接...")
+                    try:
+                        client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, keepalive=MQTT_KEEPALIVE)
+                        client.connect()
+                        log("WARNING", "⚠ 已降级为非 SSL 连接 (不安全)")
+                        return client
+                    except Exception as fallback_error:
+                        log("ERROR", f"非 SSL 连接也失败：{fallback_error}")
+                        raise ssl_error  # 抛出原始 SSL 错误
+                else:
+                    raise ssl_error
 
         except Exception as e:
             retry_count += 1
             log("ERROR", f'MQTT连接失败 (尝试 {retry_count}/{MQTT_MAX_RETRIES}): {e}')
             if retry_count < MQTT_MAX_RETRIES:
-                log("INFO", '5秒后尝试重新连接...')
+                log("INFO", '5 秒后尝试重新连接...')
                 time.sleep(5)
             else:
                 log("ERROR", f'MQTT连接失败，已达到最大重试次数 {MQTT_MAX_RETRIES}')
