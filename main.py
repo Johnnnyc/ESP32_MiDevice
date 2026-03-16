@@ -292,8 +292,12 @@ def on_message(topic, msg):
                 # 运行更新脚本
                 log("INFO", "运行更新脚本...")
                 import updata
+                response = {"更新版本成功"}
+                client.publish(update, json.dumps(response))
             except Exception as e:
                 log("ERROR", f"OTA更新失败: {e}")
+                response = {"更新版本失败"}
+                client.publish(update, json.dumps(response))
         elif msg.decode() == "获取温湿度":
             led.value(1)  # 点亮LED
             read_sent(client)  # 读取传感器数据并发送
