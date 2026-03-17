@@ -56,29 +56,44 @@ def push_data_to_firebase(data):
         import gc
         gc.collect()  # 推送前进行内存回收
         
-        # 简化数据结构，只推送必要字段
-        simple_data = {
-            'temp': data.get('temperature'),
-            'humid': data.get('humidity'),
-            'time': data.get('datetime')
-        }
-        
-        # 使用时间戳作为数据ID
+        # 构建数据结构，与Firebase数据库格式一致
         import time
-        timestamp = str(int(time.time()))
+        timestamp = str(int(time.time() * 1000))  # 使用毫秒级时间戳
+        simple_data = {
+            'datetime': data.get('datetime'),
+            'humidity': data.get('humidity'),
+            'temperature': data.get('temperature'),
+            'timestamp': timestamp
+        }
         # 使用更简单的URL构建
         url = FIREBASE_URL + "/sensor-data/" + timestamp + ".json"
         headers = {"Content-Type": "application/json"}
         
         # 使用PUT请求保存历史数据，使用时间戳作为ID
-        response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
-        response.close()
+        response = urequests.put(url, json=simple_data, headers=headers, timeout=10)
         
-        # 保留成功日志，便于调试
-        log("INFO", "Firebase推送成功")
-        
-        gc.collect()  # 推送后进行内存回收
-        return True
+        # 检查状态码
+        if response.status_code == 200:
+            # 读取响应内容
+            try:
+                response_text = response.text
+                log("INFO", f"Firebase推送成功，响应: {response_text}")
+            except:
+                log("INFO", "Firebase推送成功")
+            response.close()
+            gc.collect()  # 推送后进行内存回收
+            return True
+        else:
+            # 状态码错误
+            error_msg = f"Firebase推送失败，状态码: {response.status_code}"
+            log("ERROR", error_msg)
+            try:
+                error_content = response.text
+                log("ERROR", f"响应内容: {error_content}")
+            except:
+                pass
+            response.close()
+            return False
     except Exception as e:
         # 保留失败日志，便于调试
         log("ERROR", "Firebase推送失败")
@@ -209,15 +224,7 @@ def read_sensor():
 
     # 获取网络时间并格式化为字符串
     global last_ntp_sync
-    try:
-        current_epoch = time.time()
-        # 每小时同步一次 NTP 时间（如果距离上次同步超过 1 小时）
-        if current_epoch - last_ntp_sync > 3600:
-            if sync_ntp_time():
-                log("INFO", "NTP 时间同步成功（传感器读取时同步）")
-            else:
-                log("WARNING", "NTP 时间同步失败（传感器读取时同步）")
-        
+    try:       
         # 获取当前时间并添加时区偏移
         current_time = time.localtime()
         utc_hour = current_time[3]
@@ -274,7 +281,7 @@ def on_message(topic, msg):
         log("INFO", f"内容: {msg.decode()}")
         
         # 检查是否是更新指令
-        if topic.decode() == MQTT_UPDATE_TOPIC and msg.decode() == "update":
+        if topic.decode() == MQTT_TOPIC and msg.decode() == "update":
             log("INFO", "收到更新指令，开始OTA更新...")
             try:
                 # 下载更新脚本
@@ -292,8 +299,12 @@ def on_message(topic, msg):
                 # 运行更新脚本
                 log("INFO", "运行更新脚本...")
                 import updata
+                response = {"更新版本成功"}
+                client.publish(update, json.dumps(response))
             except Exception as e:
                 log("ERROR", f"OTA更新失败: {e}")
+                response = {"更新版本失败"}
+                client.publish(update, json.dumps(response))
         elif msg.decode() == "获取温湿度":
             led.value(1)  # 点亮LED
             read_sent(client)  # 读取传感器数据并发送
@@ -317,9 +328,7 @@ def subscribe(client):
     """订阅主题并设置回调"""
     client.set_callback(on_message)
     client.subscribe(TOPIC)
-    client.subscribe(MQTT_UPDATE_TOPIC)
     log("INFO", f"已成功订阅主题: {TOPIC}")
-    log("INFO", f"已成功订阅更新主题: {MQTT_UPDATE_TOPIC}")
 
 def read_sent(client):
     max_retries = 3
@@ -646,4 +655,3 @@ def main():
 
 if __name__ == '__main__':
     main()  # 运行主程序
-
