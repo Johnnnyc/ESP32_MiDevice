@@ -56,16 +56,15 @@ def push_data_to_firebase(data):
         import gc
         gc.collect()  # 推送前进行内存回收
         
-        # 简化数据结构，只推送必要字段
-        simple_data = {
-            'temp': data.get('temperature'),
-            'humid': data.get('humidity'),
-            'time': data.get('datetime')
-        }
-        
-        # 使用时间戳作为数据ID
+        # 构建数据结构，与Firebase数据库格式一致
         import time
-        timestamp = str(int(time.time()))
+        timestamp = str(int(time.time() * 1000))  # 使用毫秒级时间戳
+        simple_data = {
+            'datetime': data.get('datetime'),
+            'humidity': data.get('humidity'),
+            'temperature': data.get('temperature'),
+            'timestamp': timestamp
+        }
         # 使用更简单的URL构建
         url = FIREBASE_URL + "/sensor-data/" + timestamp + ".json"
         headers = {"Content-Type": "application/json"}
