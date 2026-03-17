@@ -5,7 +5,25 @@ ver = 2.0
 import urequests
 import os
 import time
-import gc
+
+# 为MicroPython添加os.path兼容层
+if not hasattr(os, 'path'):
+    class Path:
+        @staticmethod
+        def basename(path):
+            return path.split('/')[-1].split('\\')[-1]
+        @staticmethod
+        def dirname(path):
+            parts = path.split('/')[:-1]
+            return '/'.join(parts) if parts else '.'
+        @staticmethod
+        def exists(path):
+            try:
+                os.stat(path)
+                return True
+            except OSError:
+                return False
+    os.path = Path()
 
 def backup_file(file_path):
     """
@@ -34,48 +52,24 @@ def backup_file(file_path):
 
 # 要更新的文件列表
 file_map = {
-    "main.py": "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/main.py"
+    "main.py": "https://raw.githubusercontent.com/Johnnyc/esp32-midevice/main/main.py"
 }
 
 print("开始批量更新...")
 
 try:
     for filename, url in file_map.items():
-        print(f"\n更新: {filename}")
-        print(f"下载地址：{url}")
+        print(f"更新: {filename}")
         # 备份现有文件
-        print("备份现有文件...")
         backup_file(filename)
-        # 清理内存
-        print("清理内存...")
-        gc.collect()
         # 下载新文件
-        print("下载新版本文件...")
-        res = None
-        
-        try:
-            res = urequests.get(url, timeout=15)  # 增加超时时间到15秒
-            print(f"下载成功，文件大小：{len(res.content)} bytes")
-            
-            # 写入文件
-            with open(filename, "wb") as f:
-                f.write(res.content)
-            print(f"✓ {filename} 更新完成")
-        except Exception as download_error:
-            print(f"⚠ 下载失败：{download_error}")
-            print(f"跳过 {filename} 的更新，继续使用旧版本")
-        finally:
-            # 确保关闭响应对象
-            if res:
-                try:
-                    res.close()
-                except:
-                    pass
-            # 清理内存
-            gc.collect()
-    print("\n===== 更新完成 =====")
+        res = urequests.get(url, timeout=20)  # 设置超时时间为20秒
+        with open(filename, "wb") as f:
+            f.write(res.content)
+        res.close()
+    print("所有文件更新完成！")
 except Exception as e:
-    print(f"\n更新过程出错：{e}")
+    print(f"更新失败: {e}")
 
 # 重启设备
 import machine

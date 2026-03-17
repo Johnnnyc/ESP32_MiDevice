@@ -20,7 +20,7 @@ MAX_ERRORS = 5  # 主循环最大错误次数
 ERROR_SLEEP_TIME = 5  # 错误后等待时间（秒）
 WIFI_RETRY_TIME = 30  # WiFi重连等待时间（秒）
 LED_BLINK_INTERVAL = 0.5  # LED闪烁间隔（秒）
-AUTO_REINIT_INTERVAL = 14400  # 自动重新初始化间隔（秒）= 4小时
+AUTO_REINIT_INTERVAL = 3600  # 自动重新初始化间隔（秒）= 1小时
 
  # 风扇控制引脚配置，假设连接在GPIO5
 fan_pin = Pin(5, Pin.OUT)
@@ -56,44 +56,29 @@ def push_data_to_firebase(data):
         import gc
         gc.collect()  # 推送前进行内存回收
         
-        # 构建数据结构，与Firebase数据库格式一致
-        import time
-        timestamp = str(int(time.time() * 1000))  # 使用毫秒级时间戳
+        # 简化数据结构，只推送必要字段
         simple_data = {
-            'datetime': data.get('datetime'),
-            'humidity': data.get('humidity'),
-            'temperature': data.get('temperature'),
-            'timestamp': timestamp
+            'temp': data.get('temperature'),
+            'humid': data.get('humidity'),
+            'time': data.get('datetime')
         }
+        
+        # 使用时间戳作为数据ID
+        import time
+        timestamp = str(int(time.time()))
         # 使用更简单的URL构建
         url = FIREBASE_URL + "/sensor-data/" + timestamp + ".json"
         headers = {"Content-Type": "application/json"}
         
         # 使用PUT请求保存历史数据，使用时间戳作为ID
-        response = urequests.put(url, json=simple_data, headers=headers, timeout=10)
+        response = urequests.put(url, json=simple_data, headers=headers, timeout=5)
+        response.close()
         
-        # 检查状态码
-        if response.status_code == 200:
-            # 读取响应内容
-            try:
-                response_text = response.text
-                log("INFO", f"Firebase推送成功，响应: {response_text}")
-            except:
-                log("INFO", "Firebase推送成功")
-            response.close()
-            gc.collect()  # 推送后进行内存回收
-            return True
-        else:
-            # 状态码错误
-            error_msg = f"Firebase推送失败，状态码: {response.status_code}"
-            log("ERROR", error_msg)
-            try:
-                error_content = response.text
-                log("ERROR", f"响应内容: {error_content}")
-            except:
-                pass
-            response.close()
-            return False
+        # 保留成功日志，便于调试
+        log("INFO", "Firebase推送成功")
+        
+        gc.collect()  # 推送后进行内存回收
+        return True
     except Exception as e:
         # 保留失败日志，便于调试
         log("ERROR", "Firebase推送失败")
@@ -102,23 +87,17 @@ def push_data_to_firebase(data):
 def log(level, message):
     """简单的日志函数"""
     global last_ntp_sync
-    try:
-        current_time = time.localtime()
-        # 添加时区偏移量（东八区为 +8 小时）
-        utc_hour = current_time[3]
-        tz_hour = utc_hour + 8
-        
-        # 处理跨天情况
-        if tz_hour >= 24:
-            tz_hour -= 24
-        
-        time_str = "{:02d}:{:02d}:{:02d}".format(
-            tz_hour, current_time[4], current_time[5]
-        )
-    except Exception as e:
-        # 如果时间获取失败，使用简单格式
-        time_str = "??:??:??"
-    
+    timestamp = time.localtime()
+    # 只有当NTP曾经成功同步过，才加8小时（因为NTP返回的是UTC时间）
+    hour = timestamp[3]
+    if last_ntp_sync > 0:
+        # 东八区时区偏移 +8小时
+        hour += 8
+        if hour >= 24:
+            hour -= 24
+    time_str = "{:02d}:{:02d}:{:02d}".format(
+        hour, timestamp[4], timestamp[5]
+    )
     print(f"[{time_str}] [{level}] {message}")
 
 def connect_wifi():
@@ -169,90 +148,115 @@ PASSWORD = 'Zq??900725'
 TOPIC = "esp32/topic"
 CA_CERTS_PATH = "./ca.crt"  # use the public broker CA
 
-def connect():
-    global client
-    while True:
-        try:
-            # 如果已有客户端连接，先断开并释放资源
-            if client:
-                try:
-                    client.disconnect()
-                except:
-                    pass
-                client = None
-                
-            ssl_context = create_ssl_context()
-            client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=10)
-            client.connect()
-            print('Connected to MQTT Broker "{server}"'.format(server=SERVER))
-            return client
-        except Exception as e:
-            print('MQTT连接失败:', e)
-            print('5秒后尝试重新连接...')
-            time.sleep(2)
-
 def create_ssl_context():
     # Create an SSL context
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.load_verify_locations(CA_CERTS_PATH)
     return ssl_context
 
+
+def connect():
+    global client
+    retry_count = 0
+    
+    while retry_count < MQTT_MAX_RETRIES:
+        try:
+            # 如果已有客户端连接，先断开并释放资源
+            if client:
+                try:
+                    client.disconnect()
+                except Exception as e:
+                    log("WARNING", f"断开连接时发生错误: {e}")
+                client = None
+
+            # 创建SSL上下文
+            try:
+                ssl_context = create_ssl_context()
+            except Exception as e:
+                log("ERROR", f"创建SSL上下文失败: {e}")
+                retry_count += 1
+                time.sleep(5)
+                continue
+
+            # 创建MQTT客户端并连接
+            client = MQTTClient(CLIENT_ID, SERVER, PORT, USERNAME, PASSWORD, ssl=ssl_context, keepalive=MQTT_KEEPALIVE)
+            client.connect()
+            log("INFO", f'Connected to MQTT Broker "{SERVER}"')
+            return client
+
+        except Exception as e:
+            retry_count += 1
+            log("ERROR", f'MQTT连接失败 (尝试 {retry_count}/{MQTT_MAX_RETRIES}): {e}')
+            if retry_count < MQTT_MAX_RETRIES:
+                log("INFO", '5秒后尝试重新连接...')
+                time.sleep(5)
+            else:
+                log("ERROR", f'MQTT连接失败，已达到最大重试次数 {MQTT_MAX_RETRIES}')
+                raise e
+
+
 def read_sensor():
-    """读取传感器数据，增加重试机制"""
+    """读取传感器数据"""
     # 初始化变量
     temperature = None
     humidity = None
     time_str = ""
     
-    # 读取温湿度数据，增加重试机制
-    max_retries = 3
-    retry_count = 0
-    
-    while retry_count < max_retries and (temperature is None or humidity is None):
-        try:
-            dht.measure()  # 测量温湿度
-            temperature = dht.temperature()  # 获取温度
-            humidity = dht.humidity()  # 获取湿度
-            if temperature is not None and humidity is not None:
-                log("INFO", f'DHT11读取成功: 温度=%.1f°C, 湿度=%.1f%%' % (temperature, humidity))
-        except Exception as e:
-            retry_count += 1
-            log("ERROR", f'读取温湿度失败 (尝试 {retry_count}/{max_retries}): {e}')
-            if retry_count < max_retries:
-                time.sleep(0.5)  # 短暂延迟后重试
-
+    # 读取温湿度数据
+    try:
+        dht.measure()  # 测量温湿度
+        temperature = dht.temperature()  # 获取温度
+        humidity = dht.humidity()  # 获取湿度
+    except Exception as e:
+        log("ERROR", f'读取温湿度失败: {e}')
 
     # 获取网络时间并格式化为字符串
     global last_ntp_sync
-    try:       
-        # 获取当前时间并添加时区偏移
+    try:
+        current_epoch = time.time()
+        # 每小时同步一次NTP时间
+        if last_ntp_sync == 0 or current_epoch - last_ntp_sync > 3600:
+            # 减少NTP同步频率，节省内存和网络资源
+            try:
+                # 使用国内可用的NTP服务器
+                ntptime.host = 'ntp.aliyun.com'  # 阿里云NTP服务器
+                ntptime.settime()  # 同步网络时间
+                last_ntp_sync = time.time()  # 使用同步后的时间
+                log("INFO", "NTP时间同步成功")
+            except Exception as e:
+                log("ERROR", f'NTP同步失败: {e}')
+                # 尝试使用其他NTP服务器
+                try:
+                    ntptime.host = 'cn.pool.ntp.org'  # 中国NTP服务器池
+                    ntptime.settime()
+                    last_ntp_sync = time.time()  # 使用同步后的时间
+                    log("INFO", "NTP时间同步成功(备用服务器)")
+                except Exception as e2:
+                    log("ERROR", f'备用NTP服务器同步失败: {e2}')
+        
+        # 格式化时间
         current_time = time.localtime()
-        utc_hour = current_time[3]
-        tz_hour = utc_hour + 8
+        # 简化时间格式化，减少内存使用
+        year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
         
-        # 处理跨天情况
-        if tz_hour >= 24:
-            tz_hour -= 24
+        # 如果NTP曾经成功同步过，说明系统时间是UTC，需要加8小时
+        if last_ntp_sync > 0:
+            # 东八区时区偏移 +8小时
+            hour += 8
+            if hour >= 24:
+                hour -= 24
         
-        time_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
-            current_time[0], current_time[1], current_time[2],
-            tz_hour, current_time[4], current_time[5]
-        )
+        # 直接格式化字符串，减少中间变量
+        time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+        # 记录时区处理后的时间，便于调试
+        log("INFO", f"时区处理后时间: {time_str}")
     except Exception as e:
-        log("ERROR", f'获取网络时间失败：{e}')
-        # 获取当前时间并格式化为字符串（无 NTP 同步）
+        log("ERROR", f'获取网络时间失败: {e}')
+        # 获取当前时间并格式化为字符串
         current_time = time.localtime()
-        utc_hour = current_time[3]
-        tz_hour = utc_hour + 8
-        
-        # 处理跨天情况
-        if tz_hour >= 24:
-            tz_hour -= 24
-        
-        time_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
-            current_time[0], current_time[1], current_time[2],
-            tz_hour, current_time[4], current_time[5]
-        )
+        year, month, day, hour, minute, second = current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5]
+        # NTP同步失败时，不添加时区偏移
+        time_str = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
     
     # 构建数据字典
     data = {
@@ -281,30 +285,8 @@ def on_message(topic, msg):
         log("INFO", f"内容: {msg.decode()}")
         
         # 检查是否是更新指令
-        if topic.decode() == MQTT_TOPIC and msg.decode() == "update":
-            log("INFO", "收到更新指令，开始OTA更新...")
-            try:
-                # 下载更新脚本
-                UPDATE_URL = "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/updata.py"
-                log("INFO", f"下载更新脚本: {UPDATE_URL}")
-                resp = urequests.get(UPDATE_URL, timeout=30)
-                data = resp.content
-                resp.close()
-                
-                # 写入更新脚本
-                with open("updata.py", "wb") as f:
-                    f.write(data)
-                log("INFO", "更新脚本下载完成")
-                
-                # 运行更新脚本
-                log("INFO", "运行更新脚本...")
-                import updata
-                response = {"更新版本成功"}
-                client.publish(update, json.dumps(response))
-            except Exception as e:
-                log("ERROR", f"OTA更新失败: {e}")
-                response = {"更新版本失败"}
-                client.publish(update, json.dumps(response))
+        if topic.decode() == MQTT_UPDATE_TOPIC and msg.decode() == "update":
+            log("INFO", "收到更新指令，使用boot.py中的OTA功能进行更新")
         elif msg.decode() == "获取温湿度":
             led.value(1)  # 点亮LED
             read_sent(client)  # 读取传感器数据并发送
@@ -328,7 +310,9 @@ def subscribe(client):
     """订阅主题并设置回调"""
     client.set_callback(on_message)
     client.subscribe(TOPIC)
+    client.subscribe(MQTT_UPDATE_TOPIC)
     log("INFO", f"已成功订阅主题: {TOPIC}")
+    log("INFO", f"已成功订阅更新主题: {MQTT_UPDATE_TOPIC}")
 
 def read_sent(client):
     max_retries = 3
@@ -389,35 +373,15 @@ def reinitialize():
     last_reinit_time = time.time()
     log("INFO", "系统重新初始化完成")
 
-def sync_ntp_time():
-    """同步 NTP 时间，返回是否成功"""
-    global last_ntp_sync
-    try:
-        # 使用国内可用的 NTP 服务器
-        ntptime.host = 'ntp.aliyun.com'  # 阿里云 NTP 服务器
-        ntptime.settime()  # 同步网络时间
-        last_ntp_sync = time.time()  # 使用同步后的时间
-        return True
-    except Exception as e:
-        print(f'NTP 同步失败 (阿里云): {e}')
-        # 尝试使用其他 NTP 服务器
-        try:
-            ntptime.host = 'cn.pool.ntp.org'  # 中国 NTP 服务器池
-            ntptime.settime()
-            last_ntp_sync = time.time()  # 使用同步后的时间
-            return True
-        except Exception as e2:
-            print(f'NTP 同步失败 (备用服务器): {e2}')
-            return False
-
 def main():
-    global client, last_reinit_time, last_ntp_sync
+    global client, last_reinit_time
     
-    # 第一步：连接 WiFi
+    log("INFO", "启动ESP32温湿度监控系统")
+    
+    # 连接WiFi
     if not connect_wifi():
-        # WiFi 未连接时无法同步 NTP，使用系统时间
-        log("ERROR", "WiFi 连接失败，系统无法启动")
-        # WiFi 连接失败时，LED 快速闪烁
+        log("ERROR", "WiFi连接失败，系统无法启动")
+        # WiFi连接失败时，LED快速闪烁
         for _ in range(10):
             led.value(1)
             time.sleep(0.1)
@@ -425,29 +389,18 @@ def main():
             time.sleep(0.1)
         return
     
-    # 第二步：立即同步 NTP 时间（在任何日志记录之前）
-    log("INFO", "正在同步 NTP 时间...")
-    ntp_success = sync_ntp_time()
-    if ntp_success:
-        log("INFO", "NTP 时间同步成功")
-    else:
-        log("WARNING", "NTP 时间同步失败，使用系统时间")
-    
-    # 第三步：记录启动日志（此时已有准确时间）
-    log("INFO", "启动 ESP32 温湿度监控系统")
-    
-    # 连接 MQTT
+    # 连接MQTT
     try:
         client = connect()
         subscribe(client)
-        log("INFO", "MQTT 连接和订阅成功")
-        # MQTT 连接成功时，LED 短暂点亮
+        log("INFO", "MQTT连接和订阅成功")
+        # MQTT连接成功时，LED短暂点亮
         led.value(1)
         time.sleep(1)
         led.value(0)
     except Exception as e:
-        log("ERROR", f"MQTT 连接失败：{e}")
-        # MQTT 连接失败时，LED 慢速闪烁
+        log("ERROR", f"MQTT连接失败: {e}")
+        # MQTT连接失败时，LED慢速闪烁
         for _ in range(5):
             led.value(1)
             time.sleep(1)
@@ -458,13 +411,15 @@ def main():
     global last_firebase_push
     error_count = 0  # 错误计数器
     last_reinit_time = time.time()  # 初始化重新初始化时间
-    last_ota_check = time.time()  # 初始化 OTA 检查时间
-    last_firebase_push = time.time()  # 初始化 Firebase 推送时间
-    # last_ntp_sync 已在 sync_ntp_time 中设置
+    last_ota_check = time.time()  # 初始化OTA检查时间
+    last_firebase_push = time.time()  # 初始化Firebase推送时间
+    last_ntp_sync = 0  # 初始化为0，表示从未同步过NTP
     
     # 使用计数器来控制推送间隔，避免系统时间跳变的影响
     firebase_push_counter = 0
     push_interval_seconds = DATA_PUSH_INTERVAL / 1000
+    
+
     
     log("INFO", "进入主循环")
     
@@ -546,28 +501,7 @@ def main():
                 except:
                     continue
             
-            # 每小时同步一次 NTP 时间（保持时间准确性）
-            current_epoch = time.time()
-            if current_epoch - last_ntp_sync > 3600:  # 3600 秒 = 1 小时
-                if sync_ntp_time():
-                    log("INFO", "NTP 时间同步成功（定时同步）")
-                    # NTP 同步后更新 last_reinit_time，避免时间跳变触发初始化
-                    last_reinit_time = time.time()
-                else:
-                    log("WARNING", "NTP 时间同步失败（定时同步）")
-            
-            # 检查是否需要定期重新初始化（4 小时）
-            current_time = time.time()
-            if current_time - last_reinit_time >= AUTO_REINIT_INTERVAL:  # 4 小时
-                reinitialize()
-                # 重新连接 WiFi 和 MQTT
-                if not connect_wifi():
-                    continue
-                try:
-                    client = connect()
-                    subscribe(client)
-                except:
-                    continue
+
             
             # 使用计数器来控制推送间隔，避免系统时间跳变的影响
             firebase_push_counter += 1  # 每次循环增加计数器
