@@ -22,5 +22,4 @@ from secret import MQTT_USER, MQTT_PASSWORD
 MQTT_BROKER = "z6fc98e1.ala.cn-hangzhou.emqxsl.cn"  # MQTT服务器地址
 MQTT_PORT = 8883  # MQTT端口
 MQTT_CLIENT_ID = "ESP32_MiDevice"
-MQTT_TOPIC = "esp32/topic"  # 接收更新指令的主题
-MQTT_UPDATE_TOPIC = "esp32/update"  # 接收更新指令的主题
+MQTT_TOPIC = "esp32/topic"  # 接收指令的主题

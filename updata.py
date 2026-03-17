@@ -5,6 +5,7 @@ ver = 2.0
 import urequests
 import os
 import time
+import gc
 
 def backup_file(file_path):
     """
@@ -45,31 +46,33 @@ try:
         # 备份现有文件
         print("备份现有文件...")
         backup_file(filename)
-        # 下载新文件 (增加重试机制)
+        # 清理内存
+        print("清理内存...")
+        gc.collect()
+        # 下载新文件
         print("下载新版本文件...")
-        max_retries = 3
-        retry_count = 0
-        download_success = False
+        res = None
         
-        while retry_count < max_retries and not download_success:
-            try:
-                res = urequests.get(url, timeout=15)  # 增加超时时间到15秒
-                print(f"下载成功，文件大小：{len(res.content)} bytes")
-                
-                # 写入文件
-                with open(filename, "wb") as f:
-                    f.write(res.content)
-                res.close()  # 释放资源
-                print(f"✓ {filename} 更新完成")
-                download_success = True
-            except Exception as download_error:
-                retry_count += 1
-                print(f"⚠ 下载失败：{download_error}")
-                if retry_count < max_retries:
-                    print(f"{retry_count}/{max_retries} 重试中...")
-                    time.sleep(2)
-                else:
-                    print(f"跳过 {filename} 的更新，继续使用旧版本")
+        try:
+            res = urequests.get(url, timeout=15)  # 增加超时时间到15秒
+            print(f"下载成功，文件大小：{len(res.content)} bytes")
+            
+            # 写入文件
+            with open(filename, "wb") as f:
+                f.write(res.content)
+            print(f"✓ {filename} 更新完成")
+        except Exception as download_error:
+            print(f"⚠ 下载失败：{download_error}")
+            print(f"跳过 {filename} 的更新，继续使用旧版本")
+        finally:
+            # 确保关闭响应对象
+            if res:
+                try:
+                    res.close()
+                except:
+                    pass
+            # 清理内存
+            gc.collect()
     print("\n===== 更新完成 =====")
 except Exception as e:
     print(f"\n更新过程出错：{e}")

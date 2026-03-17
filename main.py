@@ -208,15 +208,7 @@ def read_sensor():
 
     # 获取网络时间并格式化为字符串
     global last_ntp_sync
-    try:
-        current_epoch = time.time()
-        # 每小时同步一次 NTP 时间（如果距离上次同步超过 1 小时）
-        if current_epoch - last_ntp_sync > 3600:
-            if sync_ntp_time():
-                log("INFO", "NTP 时间同步成功（传感器读取时同步）")
-            else:
-                log("WARNING", "NTP 时间同步失败（传感器读取时同步）")
-        
+    try:       
         # 获取当前时间并添加时区偏移
         current_time = time.localtime()
         utc_hour = current_time[3]
@@ -273,7 +265,7 @@ def on_message(topic, msg):
         log("INFO", f"内容: {msg.decode()}")
         
         # 检查是否是更新指令
-        if topic.decode() == MQTT_UPDATE_TOPIC and msg.decode() == "update":
+        if topic.decode() == MQTT_TOPIC and msg.decode() == "update":
             log("INFO", "收到更新指令，开始OTA更新...")
             try:
                 # 下载更新脚本
