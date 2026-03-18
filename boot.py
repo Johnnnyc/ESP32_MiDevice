@@ -5,25 +5,6 @@ import urequests
 import os
 import machine
 
-# 为MicroPython添加os.path兼容层
-if not hasattr(os, 'path'):
-    class Path:
-        @staticmethod
-        def basename(path):
-            return path.split('/')[-1].split('\\')[-1]
-        @staticmethod
-        def dirname(path):
-            parts = path.split('/')[:-1]
-            return '/'.join(parts) if parts else '.'
-        @staticmethod
-        def exists(path):
-            try:
-                os.stat(path)
-                return True
-            except OSError:
-                return False
-    os.path = Path()
-
 # WiFi 信息（使用项目中的WiFi配置）
 WIFI_CONFIGS = [
     {'ssid': 'HUAWEI-1CRES9-A3', 'password': 'Zq900725'},
@@ -32,7 +13,7 @@ WIFI_CONFIGS = [
 ]
 
 # 云端更新脚本
-UPDATE_URL = "https://raw.githubusercontent.com/Johnnyc/esp32-midevice/main/updata.py"
+UPDATE_URL = "https://raw.githubusercontent.com/Johnnnyc/ESP32_MiDevice/main/updata.py"
 
 def connect_wifi():
     """
@@ -140,31 +121,25 @@ def clean_old_backups():
     except Exception as e:
         print(f"清理旧备份失败: {e}")
 
+# 获取当前版本号
+def get_current_version():
+    try:
+        with open("updata.py", "r") as f:
+            for line in f:
+                if line.startswith("ver ="):
+                    try:
+                        return float(line.split("=")[1].strip())
+                    except:
+                        return 0.0
+    except:
+        return 0.0
+
 # 主逻辑
 try:
     # 清理旧备份
     clean_old_backups()
     
     if connect_wifi():
-        print("开始OTA检查...")
-        try:
-            resp = urequests.get(UPDATE_URL, timeout=20)  # 设置超时时间为20秒
-            data = resp.content
-            
-            # 判断是否更新（第10个字符是1就更新）
-            if len(data) > 9 and chr(data[9]) == "1":
-                print("检测到新版本，开始更新...")
-                # 备份现有文件
-                backup_file("main.py")
-                
-                with open("updata.py", "wb") as f:
-                    f.write(data)
-                
-                # 运行更新脚本
-                import updata
-            else:
-                print("无需更新")
-        except Exception as e:
-            print("OTA检查失败，继续正常运行")
+        print("启动完成，等待MQTT更新指令...")
 except Exception as e:
     print("初始化失败，继续正常运行")
